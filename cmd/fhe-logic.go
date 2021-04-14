@@ -127,7 +127,7 @@ func transfer() {
 }
 
 func init() {
-	params = bfv.DefaultParams[bfv.PN12QP101pq].WithT(0x3ee0001)
+	params = bfv.DefaultParams[bfv.PN13QP218].WithT(0x3ee0001)
 	fmt.Println("params", params)
 	numCiperTextFilename = "numCiper.bin"
 
@@ -161,6 +161,7 @@ func add(sk *bfv.SecretKey, pk *bfv.PublicKey) {
 	}
 
 	degree := numCiperText.Degree()
+	fmt.Println("degree:", degree)
 	resultCiper := bfv.NewCiphertext(params, degree)
 
 	// 同态加
