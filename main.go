@@ -15,7 +15,7 @@ import (
 var (
 	channelName = "mychannel"
 	orgName     = "Org1"
-	ccName      = "wkx-demo30"
+	ccName      = "wkx-demo33"
 )
 
 var (
@@ -94,23 +94,25 @@ func main() {
 	enroll(clientUser1, "./pk.key")
 
 	pk := deserializePk()
-	x1, err := encryptAmount(pk, 100)
+	fromBalance, err := encryptAmount(pk, 100)
 	if err != nil {
 		log.Fatalln(err)
 	}
 
-	x2, err := encryptAmount(pk, -44)
+	fromTransfer, err := encryptAmount(pk, -44)
 	if err != nil {
 		log.Fatalln(err)
 	}
 
-	y1, err := encryptAmount(pk, 44)
+	toTransfer, err := encryptAmount(pk, 44)
 	if err != nil {
 		log.Fatalln(err)
 	}
 
-	transfer(clientAdmin, "User1@org1.example.com", x1, x2, y1)
+	transfer(clientAdmin, "User1@org1.example.com", fromBalance, fromTransfer, toTransfer)
 
+	balance(clientAdmin)
+	balance(clientUser1)
 	sdk.Close()
 }
 
@@ -161,14 +163,34 @@ func execute(client *channel.Client, fcn string, queryArgs [][]byte) channel.Res
 	return response
 }
 
-func transfer(client *channel.Client, userName string, x1, x2, y1 []byte) {
+func transfer(client *channel.Client, userName string, fromBalance, fromTransfer, toTransfer []byte) {
 	queryArgs := [][]byte{
 		[]byte(userName),
-		x1,
-		x2,
-		y1,
+		fromBalance,
+		fromTransfer,
+		toTransfer,
 	}
 
 	response := execute(client, "transfer", queryArgs)
 	fmt.Println(response.ChaincodeStatus, string(response.Payload))
+}
+
+func balance(client *channel.Client) {
+	queryArgs := [][]byte{}
+
+	response := execute(client, "balance", queryArgs)
+
+	balanceCiperText := new(bfv.Ciphertext)
+	err = balanceCiperText.UnmarshalBinary(response.Payload)
+	if err != nil {
+		log.Fatalln(err)
+	}
+	sk := deserializeSk()
+	decryptor := bfv.NewDecryptor(params, sk)
+	resultEncoded := decryptor.DecryptNew(balanceCiperText)
+
+	encoder := bfv.NewEncoder(params)
+	result := encoder.DecodeIntNew(resultEncoded)
+	fmt.Println(response.ChaincodeStatus, result[:1])
+
 }
