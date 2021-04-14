@@ -15,7 +15,7 @@ import (
 var (
 	channelName = "mychannel"
 	orgName     = "Org1"
-	ccName      = "wkx-demo33"
+	ccName      = "demo01"
 )
 
 var (
@@ -113,6 +113,7 @@ func main() {
 
 	balance(clientAdmin)
 	balance(clientUser1)
+
 	sdk.Close()
 }
 
