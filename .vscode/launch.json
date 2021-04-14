@@ -13,7 +13,7 @@
                 "FABRIC_SDK_GO_PROJECT_PATH": "${workspaceFolder}",
                 "CRYPTOCONFIG_FIXTURES_PATH": "organizations"
             },
-            "program": "${file}",
+            "program": "${workspaceFolder}/main.go",
             "args": [
                 "-test.v"
             ]
