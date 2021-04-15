@@ -42,3 +42,22 @@ peer:
 2. 其直接返回硬编码的变量`CryptoConfigPath`的值，[link](https://github.com/hyperledger/fabric-sdk-go/blob/c4d51626e6c9fc82432f76c20b01d0dfa709b22a/test/metadata/metadata.go#L14)
 3. 因为[crypto等文件的路径](https://github.com/hyperledger/fabric-sdk-go/blob/c4d51626e6c9fc82432f76c20b01d0dfa709b22a/test/fixtures/config/config_e2e.yaml#L67)是拼接出来的，最好使用相对路径
 4. 如果crypto路径不在`FABRIC_SDK_GO_PROJECT_PATH`的路径下，可以软链接到该目录下(这里链接到仓库根目录的organizations)
+
+相关仓库版本
+```
+➜  fabric git:(release-2.2) ✗ git --no-pager log -1 
+commit 496c5f54763ddfcd6c06e473b7425afc70aa1bc1 (HEAD -> release-2.2)
+Author: Matthew Sykes <sykesmat@us.ibm.com>
+Date:   Wed Mar 17 19:49:03 2021 -0400
+
+    integration: PKCS#11 SKI to CKA_ID mapping test
+    
+    Signed-off-by: Matthew Sykes <sykesmat@us.ibm.com>
+
+➜  fabric-samples git:(release-2.2) git --no-pager log -1
+commit a545bcb4e8658cc10d8d494ff5c6c5de2259740d (HEAD -> release-2.2)
+Author: wangkaixuan <2654189525@qq.com>
+Date:   Wed Apr 14 21:53:06 2021 +0800
+
+    modify Invoke    
+```
