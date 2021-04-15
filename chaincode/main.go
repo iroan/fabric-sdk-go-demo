@@ -21,7 +21,10 @@ import (
 type SimpleAsset struct {
 }
 
-var params *bfv.Parameters
+var (
+	params             *bfv.Parameters
+	initAccountBalance int64
+)
 
 func (t *SimpleAsset) Init(stub shim.ChaincodeStubInterface) peer.Response {
 	return shim.Success(nil)
@@ -43,10 +46,17 @@ func (t *SimpleAsset) Invoke(stub shim.ChaincodeStubInterface) peer.Response {
 	return shim.Error("no such function")
 }
 
-func userName(rawCert []byte) (string, error) {
-	block, _ := pem.Decode(rawCert)
+func creatorName(stub shim.ChaincodeStubInterface) (string, error) {
+	rawCert, err := stub.GetCreator()
+	if err != nil {
+		return "GetCreator err:", err
+	}
+
+	tmp := bytes.Index(rawCert, []byte{'-'})
+
+	block, _ := pem.Decode(rawCert[tmp:])
 	if block == nil || block.Type != "CERTIFICATE" {
-		return "", fmt.Errorf("Wrong PEM encoding:", block.Type)
+		return "", fmt.Errorf("WRONG PEM ENCODING:%s", block.Type)
 
 	}
 	cert, err := x509.ParseCertificate(block.Bytes)
@@ -57,47 +67,63 @@ func userName(rawCert []byte) (string, error) {
 	return cert.Subject.CommonName, nil
 }
 
-// return shim.Error(err.Error())
-// return shim.Success([]byte(result))
-
 func enroll(stub shim.ChaincodeStubInterface, args []string) peer.Response {
-	rawCert, err := stub.GetCreator()
+	// get username
+	name, err := creatorName(stub)
 	if err != nil {
-		return shim.Error("GetCreator:" + err.Error())
-	}
-	tmp := bytes.Index(rawCert, []byte{'-'})
-	userName, err := userName(rawCert[tmp:])
-
-	if err != nil {
-		return shim.Error("on userName:" + err.Error())
+		return shim.Error(err.Error())
 	}
 
-	pk := args[0]
-	err = stub.PutState(userName, []byte(pk))
+	// add to account map
+	publicKey := []byte(args[0])
+	err = stub.PutState(getEnrollKey(name), publicKey)
 	if err != nil {
-		return shim.Error(fmt.Sprintf("%s enroll failed,err:%s", userName, err))
+		return shim.Error(fmt.Sprintf("%s enroll failed,err:%s", getEnrollKey(name), err))
 	}
 
-	return shim.Success([]byte(fmt.Sprintf("%s enroll successfully", userName)))
+	// restore the public key
+	pk := bfv.NewPublicKey(params)
+	if err != nil {
+		return shim.Error(err.Error())
+	}
+
+	pk.UnmarshalBinary(publicKey)
+
+	// set account balance
+	pt := bfv.NewPlaintext(params)
+	balance := []int64{initAccountBalance}
+
+	encoder := bfv.NewEncoder(params)
+	encoder.EncodeInt(balance, pt)
+
+	encryptorPk := bfv.NewEncryptorFromPk(params, pk)
+	balanceCiper := encryptorPk.EncryptNew(pt)
+
+	balanceBin, err := balanceCiper.MarshalBinary()
+	if err != nil {
+		return shim.Error(err.Error())
+	}
+
+	err = stub.PutState(getBalanceKey(name), balanceBin)
+	if err != nil {
+		return shim.Error(err.Error())
+	}
+
+	// enroll success
+	return shim.Success([]byte(fmt.Sprintf("%s enroll successfully", name)))
 }
 
-func balanceAccount(userName string) string {
+func getBalanceKey(userName string) string {
 	return strings.Join([]string{userName, "Balance"}, "-")
 }
 
-func fromAccouunt(stub shim.ChaincodeStubInterface) (string, error) {
-	rawCert, err := stub.GetCreator()
-	if err != nil {
-		return "GetCreator err:", err
-	}
+func getEnrollKey(userName string) string {
+	return strings.Join([]string{userName, "Balance"}, "-")
+}
 
-	tmp := bytes.Index(rawCert, []byte{'-'})
-	userName, err := userName(rawCert[tmp:])
-	if err != nil {
-		return "", err
-	}
-
-	return balanceAccount(userName), nil
+func isEnrolled(stub shim.ChaincodeStubInterface, userName string) bool {
+	val, _ := stub.GetState(getEnrollKey(userName))
+	return val != nil
 }
 
 func creater(stub shim.ChaincodeStubInterface) peer.Response {
@@ -109,12 +135,12 @@ func creater(stub shim.ChaincodeStubInterface) peer.Response {
 }
 
 func balance(stub shim.ChaincodeStubInterface) peer.Response {
-	fromAcc, err := fromAccouunt(stub)
+	name, err := creatorName(stub)
 	if err != nil {
 		return shim.Error(err.Error())
 	}
 
-	balanceCiper, err := stub.GetState(fromAcc)
+	balanceCiper, err := stub.GetState(getBalanceKey(name))
 	if err != nil {
 		return shim.Error(err.Error())
 	}
@@ -123,67 +149,73 @@ func balance(stub shim.ChaincodeStubInterface) peer.Response {
 }
 
 func transfer(stub shim.ChaincodeStubInterface, args []string) peer.Response {
-	if len(args) != 4 {
-		tmp := fmt.Sprintf("current args len:%d,%s", len(args), "Incorrect arguments. Args: fn toAccount x1,x2,y1")
+	// check params
+	if len(args) != 3 {
+		tmp := fmt.Sprintf("current args len:%d,%s", len(args), "Incorrect arguments. Args: fn toUser,fromAmount,toAmount")
 		return shim.Error(tmp)
 	}
 
-	fromBalance := []byte(args[1])
-	// TODO need check fromTransfer ?= toTransfer, fromTransfer >= 0 use ZKP
-	// fromTransfer := []byte(args[2])
-	toTransfer := []byte(args[3])
-
-	fromAcc, err := fromAccouunt(stub)
+	fromUser, err := creatorName(stub)
 	if err != nil {
 		return shim.Error(err.Error())
 	}
+	toUser := args[0]
 
-	toAcc := balanceAccount(args[0])
-
-	balanceCiper, err := stub.GetState(toAcc)
-	if err != nil {
-		return shim.Error("get balance failure")
-	}
-
-	if balanceCiper == nil {
-		stub.PutState(toAcc, toTransfer)
-		stub.PutState(fromAcc, fromBalance)
-		return shim.Success([]byte("transfer successfully(first reception)"))
-	}
-
-	toBalCiphertext := new(bfv.Ciphertext)
-	err = toBalCiphertext.UnmarshalBinary(balanceCiper)
-	if err != nil {
-		tmp := fmt.Sprintf("balanceCiper UnmarshalBinary err:%s", err.Error())
+	// check whether the two account has been enrolled.
+	if !isEnrolled(stub, fromUser) || !isEnrolled(stub, toUser) {
+		tmp := fmt.Sprintf("%s or %s is not enrolled.", fromUser, toUser)
 		return shim.Error(tmp)
 	}
 
-	toTransCiphertext := new(bfv.Ciphertext)
-	err = toTransCiphertext.UnmarshalBinary(toTransfer)
-	if err != nil {
-		tmp := fmt.Sprintf("y1 UnmarshalBinary err:%s", err.Error())
-		return shim.Error(tmp)
+	// TODO need check dec(fromTranster) + dec(toTransfer) == 0
+	fromAmount := []byte(args[1])
+	toAmount := []byte(args[2])
+
+	// update balance
+	if updateBalance(stub, fromUser, fromAmount) != nil || updateBalance(stub, toUser, toAmount) != nil {
+		return shim.Error("failure")
 	}
 
-	degree := toTransCiphertext.Degree()
-	resultToCiphertext := bfv.NewCiphertext(params, degree)
+	return shim.Success([]byte("success"))
+}
 
-	// return fmt.Sprintf("1, len:%d,%d degree:%d", len(toBalBytes), len(y1), degree), nil
+func updateBalance(stub shim.ChaincodeStubInterface, userName string, amountCiper []byte) error {
+	tmp, err := stub.GetState(getBalanceKey(userName))
+	if err != nil {
+		return err
+	}
+
+	ciper1 := new(bfv.Ciphertext)
+	err = ciper1.UnmarshalBinary(tmp)
+	if err != nil {
+		return err
+	}
+
+	ciper2 := new(bfv.Ciphertext)
+	err = ciper2.UnmarshalBinary(amountCiper)
+	if err != nil {
+		return err
+	}
+
+	degree := ciper2.Degree()
+	ciper3 := bfv.NewCiphertext(params, degree)
+
 	evaluator := bfv.NewEvaluator(params)
-	evaluator.Add(toBalCiphertext, toTransCiphertext, resultToCiphertext)
+	evaluator.Add(ciper1, ciper2, ciper3)
 
-	resultBytes, err := resultToCiphertext.Ciphertext().MarshalBinary()
+	balance, err := ciper3.Ciphertext().MarshalBinary()
 	if err != nil {
-		tmp := fmt.Sprintf("resultToCiphertext.Ciphertext().MarshalBinary err:%s", err.Error())
-		return shim.Error(tmp)
+		return err
 	}
 
-	stub.PutState(toAcc, resultBytes)
-	return shim.Success([]byte("transfer successfully"))
+	stub.PutState(getBalanceKey(userName), balance)
+
+	return nil
 }
 
 func init() {
 	params = bfv.DefaultParams[bfv.PN13QP218].WithT(0x3ee0001)
+	initAccountBalance = 100
 }
 
 func main() {

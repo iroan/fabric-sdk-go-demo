@@ -13,8 +13,7 @@
 
 # Dependency directories (remove the comment below to include it)
 # vendor/
-pk.key
-sk.key
+*.key
 numCiper.bin
 *.txt
 vendor/

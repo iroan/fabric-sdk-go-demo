@@ -5,6 +5,7 @@ import (
 	"io/ioutil"
 	"log"
 	"os"
+	"strings"
 
 	"github.com/hyperledger/fabric-sdk-go/pkg/client/channel"
 	"github.com/hyperledger/fabric-sdk-go/pkg/core/config"
@@ -15,7 +16,7 @@ import (
 var (
 	channelName = "mychannel"
 	orgName     = "Org1"
-	ccName      = "demo01"
+	ccName      = "demo02"
 )
 
 var (
@@ -58,8 +59,42 @@ func init() {
 	params = bfv.DefaultParams[bfv.PN13QP218].WithT(0x3ee0001)
 }
 
-func deserializePk() *bfv.PublicKey {
-	content, err := ioutil.ReadFile("pk.key")
+func pkPath(name string) string {
+	return strings.Join([]string{name, "pk.key"}, "-")
+}
+
+func skPath(name string) string {
+	return strings.Join([]string{name, "sk.key"}, "-")
+}
+
+func newKeyPairAndSave(fileName string) (pk *bfv.PublicKey, sk *bfv.SecretKey) {
+	kgen := bfv.NewKeyGenerator(params)
+	sk, pk = kgen.GenKeyPair()
+	bsk, err := sk.MarshalBinary()
+	if err != nil {
+		log.Fatalln(err)
+	}
+
+	bpk, err := pk.MarshalBinary()
+	if err != nil {
+		log.Fatalln(err)
+	}
+
+	err = ioutil.WriteFile(pkPath(fileName), bpk, 0666)
+	if err != nil {
+		log.Fatalln(err)
+	}
+
+	err = ioutil.WriteFile(skPath(fileName), bsk, 0666)
+	if err != nil {
+		log.Fatalln(err)
+	}
+
+	return
+}
+
+func deserializePk(fileName string) *bfv.PublicKey {
+	content, err := ioutil.ReadFile(pkPath(fileName))
 	if err != nil {
 		log.Fatalln(err)
 	}
@@ -74,8 +109,8 @@ func deserializePk() *bfv.PublicKey {
 	return pk
 }
 
-func deserializeSk() *bfv.SecretKey {
-	content, err := ioutil.ReadFile("sk.key")
+func deserializeSk(fileName string) *bfv.SecretKey {
+	content, err := ioutil.ReadFile(skPath(fileName))
 	if err != nil {
 		log.Fatalln(err)
 	}
@@ -86,33 +121,46 @@ func deserializeSk() *bfv.SecretKey {
 	return sk
 }
 
+func transferDemo() {
+	adminPk := deserializePk("admin")
+	adminSk := deserializeSk("admin")
+	user1Pk := deserializePk("user1")
+	user1Sk := deserializeSk("user1")
+
+	fmt.Println("admin bal:", balance(clientAdmin, adminSk))
+	fmt.Println("user1 bal:", balance(clientUser1, user1Sk))
+
+	from1, _ := encryptAmount(adminPk, -5)
+	to1, _ := encryptAmount(user1Pk, 5)
+	transfer(clientAdmin, "User1@org1.example.com", from1, to1)
+
+	fmt.Println("admin bal:", balance(clientAdmin, adminSk))
+	fmt.Println("user1 bal:", balance(clientUser1, user1Sk))
+
+	from2, _ := encryptAmount(user1Pk, -8)
+	to2, _ := encryptAmount(adminPk, 8)
+	transfer(clientUser1, "Admin@org1.example.com", from2, to2)
+
+	fmt.Println("admin bal:", balance(clientAdmin, adminSk))
+	fmt.Println("user1 bal:", balance(clientUser1, user1Sk))
+}
+
+func enrollDemo() {
+	adminPk, adminSk := newKeyPairAndSave("admin")
+	user1Pk, user1Sk := newKeyPairAndSave("user1")
+
+	enroll(clientAdmin, "admin")
+	enroll(clientUser1, "user1")
+
+	_ = adminPk
+	_ = adminSk
+	_ = user1Pk
+	_ = user1Sk
+}
+
 func main() {
-	// creater(clientAdmin, "clientAdmin.txt")
-	// creater(clientUser1, "clientUser1.txt")
-
-	enroll(clientAdmin, "./pk.key")
-	enroll(clientUser1, "./pk.key")
-
-	pk := deserializePk()
-	fromBalance, err := encryptAmount(pk, 100)
-	if err != nil {
-		log.Fatalln(err)
-	}
-
-	fromTransfer, err := encryptAmount(pk, -44)
-	if err != nil {
-		log.Fatalln(err)
-	}
-
-	toTransfer, err := encryptAmount(pk, 44)
-	if err != nil {
-		log.Fatalln(err)
-	}
-
-	transfer(clientAdmin, "User1@org1.example.com", fromBalance, fromTransfer, toTransfer)
-
-	balance(clientAdmin)
-	balance(clientUser1)
+	// enrollDemo()
+	transferDemo()
 
 	sdk.Close()
 }
@@ -129,8 +177,8 @@ func encryptAmount(pk *bfv.PublicKey, num int64) ([]byte, error) {
 	return tmp.MarshalBinary()
 }
 
-func enroll(client *channel.Client, pkPath string) {
-	content, err := ioutil.ReadFile(pkPath)
+func enroll(client *channel.Client, path string) {
+	content, err := ioutil.ReadFile(pkPath(path))
 	if err != nil {
 		fmt.Println(err)
 	}
@@ -164,19 +212,18 @@ func execute(client *channel.Client, fcn string, queryArgs [][]byte) channel.Res
 	return response
 }
 
-func transfer(client *channel.Client, userName string, fromBalance, fromTransfer, toTransfer []byte) {
+func transfer(client *channel.Client, userName string, fromAmountCiper, toAmountCiper []byte) {
 	queryArgs := [][]byte{
 		[]byte(userName),
-		fromBalance,
-		fromTransfer,
-		toTransfer,
+		fromAmountCiper,
+		toAmountCiper,
 	}
 
 	response := execute(client, "transfer", queryArgs)
-	fmt.Println(response.ChaincodeStatus, string(response.Payload))
+	fmt.Println("to", userName, ":", response.ChaincodeStatus, string(response.Payload))
 }
 
-func balance(client *channel.Client) {
+func balance(client *channel.Client, sk *bfv.SecretKey) int64 {
 	queryArgs := [][]byte{}
 
 	response := execute(client, "balance", queryArgs)
@@ -186,12 +233,13 @@ func balance(client *channel.Client) {
 	if err != nil {
 		log.Fatalln(err)
 	}
-	sk := deserializeSk()
 	decryptor := bfv.NewDecryptor(params, sk)
 	resultEncoded := decryptor.DecryptNew(balanceCiperText)
 
 	encoder := bfv.NewEncoder(params)
 	result := encoder.DecodeIntNew(resultEncoded)
-	fmt.Println(response.ChaincodeStatus, result[:1])
-
+	if response.ChaincodeStatus == 200 {
+		return result[0]
+	}
+	return 0
 }

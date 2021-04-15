@@ -5,7 +5,7 @@ source ./scripts/envVar.sh
 source ./scripts/utils.sh
 
 export COMPOSE_PROJECT_NAME="fhe"
-export CCNAME="demo01"
+export CCNAME="demo02"
 
 ./network.sh down -i 2.2
 ./network.sh up createChannel -i 2.2
