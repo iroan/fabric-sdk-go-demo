@@ -5,6 +5,7 @@ import (
 	"io/ioutil"
 	"log"
 	"os"
+	"strconv"
 	"strings"
 
 	"github.com/hyperledger/fabric-sdk-go/pkg/client/channel"
@@ -28,7 +29,7 @@ var (
 )
 
 func init() {
-	c := config.FromFile("./fhe-demo.yaml")
+	c := config.FromFile("./config.yaml")
 	sdk, err = fabsdk.New(c)
 	if err != nil {
 		fmt.Printf("Failed to create new SDK: %s\n", err)
@@ -127,22 +128,26 @@ func transferDemo() {
 	user1Pk := deserializePk("user1")
 	user1Sk := deserializeSk("user1")
 
-	fmt.Println("admin bal:", balance(clientAdmin, adminSk))
-	fmt.Println("user1 bal:", balance(clientUser1, user1Sk))
+	outLine("admin balance", "user1 balance")
+	adminBal := balance(clientAdmin, adminSk)
+	user1Bal := balance(clientUser1, user1Sk)
+	outLine(strconv.FormatInt(adminBal, 10), strconv.FormatInt(user1Bal, 10))
 
 	from1, _ := encryptAmount(adminPk, -5)
 	to1, _ := encryptAmount(user1Pk, 5)
 	transfer(clientAdmin, "User1@org1.example.com", from1, to1)
 
-	fmt.Println("admin bal:", balance(clientAdmin, adminSk))
-	fmt.Println("user1 bal:", balance(clientUser1, user1Sk))
+	adminBal = balance(clientAdmin, adminSk)
+	user1Bal = balance(clientUser1, user1Sk)
+	outLine(strconv.FormatInt(adminBal, 10), strconv.FormatInt(user1Bal, 10))
 
 	from2, _ := encryptAmount(user1Pk, -8)
 	to2, _ := encryptAmount(adminPk, 8)
 	transfer(clientUser1, "Admin@org1.example.com", from2, to2)
 
-	fmt.Println("admin bal:", balance(clientAdmin, adminSk))
-	fmt.Println("user1 bal:", balance(clientUser1, user1Sk))
+	adminBal = balance(clientAdmin, adminSk)
+	user1Bal = balance(clientUser1, user1Sk)
+	outLine(strconv.FormatInt(adminBal, 10), strconv.FormatInt(user1Bal, 10))
 }
 
 func enrollDemo() {
@@ -220,7 +225,8 @@ func transfer(client *channel.Client, userName string, fromAmountCiper, toAmount
 	}
 
 	response := execute(client, "transfer", queryArgs)
-	fmt.Println("to", userName, ":", response.ChaincodeStatus, string(response.Payload))
+	// fmt.Println("to", userName, ":", response.ChaincodeStatus, string(response.Payload))
+	_ = response
 }
 
 func balance(client *channel.Client, sk *bfv.SecretKey) int64 {
@@ -242,4 +248,8 @@ func balance(client *channel.Client, sk *bfv.SecretKey) int64 {
 		return result[0]
 	}
 	return 0
+}
+
+func outLine(c1, c2 string) {
+	fmt.Printf("|%-20s|%-20s|\n", c1, c2)
 }
